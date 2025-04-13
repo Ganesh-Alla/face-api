@@ -10,8 +10,15 @@ const nextConfig: NextConfig = {
         port: "",
         pathname: "/storage/v1/object/public/event-covers/**",
       },
+      {
+        protocol: "https",
+        hostname: "qobzgblhdztldvbghpjo.supabase.co",
+        port: "",
+        pathname: "/storage/v1/object/public/photos/**",
+      },
     ],
   },
+
 };
 
 export default nextConfig;

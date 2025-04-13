@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { supabase, dataURItoFile, descriptorToString } from '@/lib/supabase';
+import {  dataURItoFile, descriptorToString } from '@/lib/supabase';
+import { createClient  } from '@/lib/supabase/client';
 
 export interface Photo {
   id: string;
@@ -7,6 +8,16 @@ export interface Photo {
   url: string;
   createdAt: string;
   faces: Face[];
+  context?: string;
+  keywords?: string[];
+  eventType?: string;
+  peopleCount?: number;
+  setting?: string;
+  colors?: string[];
+  objects?: string[];
+  mood?: string;
+  contextText?: string;
+  embedding?: number[];
 }
 
 export interface Face {
@@ -46,6 +57,24 @@ interface PhotoStore {
   fetchFaces: (photoId: string) => Promise<Face[]>;
   fetchAllFaces: (eventId: string) => Promise<Face[]>;
   deleteFace: (faceId: string) => Promise<boolean>;
+  
+  // Semantic search operations
+  generateImageContext: (imageUrl: string) => Promise<ImageContextResult | null>;
+  searchPhotosByText: (query: string) => Promise<Photo[]>;
+}
+
+// Define a type for the context result from the Gemini API
+interface ImageContextResult {
+  context: string;
+  keywords: string[];
+  event_type: string;
+  people_count: number;
+  setting: string;
+  colors: string[];
+  objects: string[];
+  mood: string;
+  contextText: string;
+  embedding: number[];
 }
 
 const usePhotoStore = create<PhotoStore>((set, get) => ({
@@ -54,6 +83,7 @@ const usePhotoStore = create<PhotoStore>((set, get) => ({
   error: null,
   
   fetchPhotos: async (eventId: string) => {
+    const supabase = createClient();
     set({ isLoading: true, error: null });
     try {
       // Fetch photos from Supabase
@@ -87,7 +117,16 @@ const usePhotoStore = create<PhotoStore>((set, get) => ({
             faceImageUrl: face.face_image_url,
             descriptor: face.descriptor,
             confidence: face.confidence
-          }))
+          })),
+          context: photo.context,
+          keywords: photo.keywords,
+          eventType: photo.event_type,
+          peopleCount: photo.people_count,
+          setting: photo.setting,
+          colors: photo.colors,
+          objects: photo.objects,
+          mood: photo.mood,
+          contextText: photo.context_text
         });
       }
       
@@ -102,33 +141,58 @@ const usePhotoStore = create<PhotoStore>((set, get) => ({
   
   uploadPhoto: async (eventId: string, file: File) => {
     set({ isLoading: true, error: null });
+    const supabase = createClient();
     try {
       // Generate a unique filename
       const fileExt = file.name.split('.').pop();
-      const fileName = `${eventId}/${Date.now()}.${fileExt}`;
+      // Get the current user ID
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (!user) {
+        throw new Error('User not authenticated');
+      }
+      
+      // Create a simpler path structure: userId/filename
+      const fileName = `${user.id}/${Date.now()}.${fileExt}`;
+      
+      console.log("Uploading to path:", fileName);
       
       // Upload to Supabase Storage
-      const { error: uploadError } = await supabase
-        .storage
+      const { error: uploadError } = await supabase.storage
         .from('photos')
         .upload(fileName, file);
       
-      if (uploadError) throw uploadError;
+      if (uploadError) {
+        console.error("Upload error details:", uploadError);
+        throw uploadError;
+      }
       
       // Get public URL
-      const { data: { publicUrl } } = supabase
-        .storage
+      const { data: { publicUrl } } = supabase.storage
         .from('photos')
         .getPublicUrl(fileName);
       
-      // Save to database
+      // Generate context for the image using Gemini API
+      const contextData = await get().generateImageContext(publicUrl);
+      // Save to database with context data
       const { data: photoData, error: dbError } = await supabase
         .from('photos')
         .insert([
           { 
             event_id: eventId,
+            user_id: user.id,
             url: publicUrl,
-            storage_path: fileName
+            thumbnail_url: fileName,
+            context: contextData?.context || null,
+            keywords: contextData?.keywords || null,
+            event_type: contextData?.event_type || null,
+            people_count: contextData?.people_count || null,
+            setting: contextData?.setting || null,
+            colors: contextData?.colors || null,
+            objects: contextData?.objects || null,
+            mood: contextData?.mood || null,
+            context_text: contextData?.contextText || null,
+            embedding: contextData?.embedding || null,
           }
         ])
         .select()
@@ -141,7 +205,17 @@ const usePhotoStore = create<PhotoStore>((set, get) => ({
         eventId: photoData.event_id,
         url: photoData.url,
         createdAt: photoData.created_at,
-        faces: []
+        faces: [],
+        embedding: photoData.embedding,
+        context: photoData.context,
+        keywords: photoData.keywords,
+        eventType: photoData.event_type,
+        peopleCount: photoData.people_count,
+        setting: photoData.setting,
+        colors: photoData.colors,
+        objects: photoData.objects,
+        mood: photoData.mood,
+        contextText: photoData.context_text
       };
       
       set(state => ({ 
@@ -199,6 +273,7 @@ const usePhotoStore = create<PhotoStore>((set, get) => ({
   
   deletePhoto: async (photoId: string) => {
     set({ isLoading: true, error: null });
+    const supabase = createClient();
     try {
       // Get the photo to find its storage path
       const { data: photo, error: fetchError } = await supabase
@@ -250,8 +325,16 @@ const usePhotoStore = create<PhotoStore>((set, get) => ({
   },
   
   saveFace: async (photoId: string, faceImage: string | File, descriptor: Float32Array, confidence: number) => {
+    const supabase = createClient();
     try {
-      let faceImageUrl;
+      let faceImageUrl: string | null = null;
+      
+      // Get the current user ID
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (!user) {
+        throw new Error('User not authenticated');
+      }
       
       // If faceImage is a string (data URI), convert to file
       if (typeof faceImage === 'string') {
@@ -261,68 +344,77 @@ const usePhotoStore = create<PhotoStore>((set, get) => ({
         );
         
         // Upload face image to storage
-        const fileName = `faces/${photoId}/${Date.now()}_${Math.random().toString(36).substring(2, 9)}.jpg`;
+        const fileName = `${user.id}/${photoId}/${Date.now()}_${Math.random().toString(36).substring(2, 9)}.jpg`;
         const { error: uploadError } = await supabase
           .storage
-          .from('photos')
+          .from('faces')
           .upload(fileName, faceFile);
         
-        if (uploadError) throw uploadError;
+        if (uploadError) {
+          console.error("Face upload error:", uploadError);
+          throw uploadError;
+        }
         
         // Get public URL
         const { data: { publicUrl } } = supabase
           .storage
-          .from('photos')
+          .from('faces')
           .getPublicUrl(fileName);
         
         faceImageUrl = publicUrl;
       } else {
         // If faceImage is already a File
-        const fileName = `faces/${photoId}/${Date.now()}_${Math.random().toString(36).substring(2, 9)}.jpg`;
+        const fileName = `${user.id}/${photoId}/${Date.now()}_${Math.random().toString(36).substring(2, 9)}.jpg`;
         const { error: uploadError } = await supabase
           .storage
-          .from('photos')
+          .from('faces')
           .upload(fileName, faceImage as File);
         
-        if (uploadError) throw uploadError;
+        if (uploadError) {
+          console.error("Face upload error:", uploadError);
+          throw uploadError;
+        }
         
         // Get public URL
         const { data: { publicUrl } } = supabase
           .storage
-          .from('photos')
+          .from('faces')
           .getPublicUrl(fileName);
         
         faceImageUrl = publicUrl;
       }
       
-      // Convert descriptor to string for storage
+      // Save face to database
       const descriptorString = descriptorToString(descriptor);
       
-      // Save face data to database
       const { data: faceData, error: dbError } = await supabase
         .from('faces')
         .insert([
-          {
+          { 
             photo_id: photoId,
+            user_id: user.id, // Add user_id to match RLS policy
             face_image_url: faceImageUrl,
             descriptor: descriptorString,
-            confidence: confidence
+            confidence
           }
         ])
         .select()
         .single();
       
-      if (dbError) throw dbError;
+      if (dbError) {
+        console.error("Face DB insert error:", dbError);
+        throw dbError;
+      }
       
       const newFace: Face = {
         id: faceData.id,
         photoId: faceData.photo_id,
         faceImageUrl: faceData.face_image_url,
-        descriptor: faceData.descriptor,
+        descriptor: descriptorString,
         confidence: faceData.confidence
       };
       
-      // Update the photos array with the new face
+      // Update the photos state with the new face
       set(state => {
         const updatedPhotos = state.photos.map(photo => {
           if (photo.id === photoId) {
@@ -338,13 +430,14 @@ const usePhotoStore = create<PhotoStore>((set, get) => ({
       });
       
       return newFace;
-    } catch (error: unknown) {
+    } catch (error) {
       console.error('Error saving face:', error);
-      return null;
+      throw error;
     }
   },
   
   fetchFaces: async (photoId: string) => {
+    const supabase = createClient();
     try {
       const { data: faces, error } = await supabase
         .from('faces')
@@ -367,6 +460,7 @@ const usePhotoStore = create<PhotoStore>((set, get) => ({
   },
   
   fetchAllFaces: async (eventId: string) => {
+    const supabase = createClient();
     try {
       // First get all photos for this event
       const { data: photos, error: photosError } = await supabase
@@ -402,6 +496,7 @@ const usePhotoStore = create<PhotoStore>((set, get) => ({
   },
   
   deleteFace: async (faceId: string) => {
+    const supabase = createClient();
     try {
       // Get the face to find its photo ID
       const { data: face, error: fetchError } = await supabase
@@ -439,6 +534,73 @@ const usePhotoStore = create<PhotoStore>((set, get) => ({
     } catch (error: unknown) {
       console.error('Error deleting face:', error);
       return false;
+    }
+  },
+  
+  // Generate context for an image using the Gemini API
+  generateImageContext: async (imageUrl: string) => {
+    try {
+      const response = await fetch('/api/generateContext', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ imageUrl }),
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error('Error generating context:', errorData);
+        return null;
+      }
+      
+      return await response.json();
+    } catch (error: unknown) {
+      console.error('Error calling context generation API:', error);
+      return null;
+    }
+  },
+  
+  // Search photos by text query
+  searchPhotosByText: async (query: string) => {
+    set({ isLoading: true, error: null });
+    const supabase = createClient();
+    try {
+      // Use Supabase's full-text search capabilities
+      const { data, error } = await supabase
+        .from('photos')
+        .select('*')
+        .textSearch('search_vector', query, {
+          type: 'websearch',
+          config: 'english'
+        });
+      
+      if (error) throw error;
+      
+      // Convert the data to our Photo type
+      const photos: Photo[] = data.map(photo => ({
+        id: photo.id,
+        eventId: photo.event_id,
+        url: photo.url,
+        createdAt: photo.created_at,
+        faces: [], // We'll need to fetch faces separately if needed
+        context: photo.context,
+        keywords: photo.keywords,
+        eventType: photo.event_type,
+        peopleCount: photo.people_count,
+        setting: photo.setting,
+        colors: photo.colors,
+        objects: photo.objects,
+        mood: photo.mood,
+        contextText: photo.context_text
+      }));
+      
+      set({ isLoading: false });
+      return photos;
+    } catch (error: unknown) {
+      console.error('Error searching photos:', error);
+      set({ error: 'Failed to search photos', isLoading: false });
+      return [];
     }
   }
 }));

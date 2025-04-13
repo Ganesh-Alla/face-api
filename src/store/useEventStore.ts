@@ -76,8 +76,7 @@ const useEventStore = create<EventState>((set, get) => ({
       const { data, error } = await supabase
         .from('events')
         .select(`
-          *,
-          photos:photos(count)
+          *
         `)
         .order('date', { ascending: false });
       

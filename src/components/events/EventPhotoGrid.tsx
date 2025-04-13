@@ -16,7 +16,7 @@ interface FaceData {
   descriptor: Float32Array;
   image: string;
   faceImage: string;
-  confidence: number; // Add confidence score
+  confidence: number;
 }
 
 interface ImageData {
@@ -119,7 +119,7 @@ export default function EventPhotoGrid() {
   useEffect(() => {
     if (eventId) {
       fetchPhotos(eventId)
-        .then(fetchedPhotos => {
+        .then(async fetchedPhotos => {
           // Convert the fetched photos to the format expected by the component
           const convertedImages: ImageData[] = fetchedPhotos.map(photo => ({
             id: photo.id,
@@ -132,23 +132,29 @@ export default function EventPhotoGrid() {
           
           setUploadedImages(convertedImages);
           
-          // Extract unique faces from all photos
+          // Collect all faces for unique face detection
           const allFaces: FaceData[] = [];
           
           for (const photo of fetchedPhotos) {
             for (const face of photo.faces) {
+              // Convert the descriptor string back to Float32Array
+              const descriptorValues = face.descriptor.split(',').map(Number);
+              const descriptor = new Float32Array(descriptorValues);
+              
               allFaces.push({
                 id: face.id,
-                descriptor: new Float32Array([]), // We'll update this when needed
+                descriptor: descriptor, // Use the actual descriptor from the database
                 image: photo.url,
                 faceImage: face.faceImageUrl,
                 confidence: face.confidence
               });
             }
           }
+
           
           // Find unique faces
           const uniqueFacesData = findUniqueFaces(allFaces);
+          console.log('Unique faces:', uniqueFacesData);
           setUniqueFaces(uniqueFacesData);
         })
         .catch(error => {
@@ -338,6 +344,8 @@ export default function EventPhotoGrid() {
       
       // Refresh the photos from the server to ensure we have the latest data
       const refreshedPhotos = await fetchPhotos(eventId);
+
+      console.log('Refreshed photos:', refreshedPhotos);
       
       // Convert the fetched photos to the format expected by the component
       const convertedImages: ImageData[] = refreshedPhotos.map(photo => ({
