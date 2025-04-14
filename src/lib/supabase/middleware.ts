@@ -64,7 +64,9 @@ export async function updateSession(request: NextRequest) {
   if (!user) {
     // If trying to access protected route, redirect to login
     if (isProtectedRoute) {
-      return NextResponse.redirect(new URL('/login', request.url));
+      return NextResponse.redirect(
+        new URL("/login", process.env.NEXT_PUBLIC_APP_URL),
+      );
     }
     // If on public route, let them stay there
     return supabaseResponse;
@@ -76,7 +78,9 @@ export async function updateSession(request: NextRequest) {
   // If user is on public routes and authenticated, redirect based on profile status
   if (user) {
     if (isPublicRoute) {
-      return NextResponse.redirect(new URL('/dashboard', request.url));
+      return NextResponse.redirect(
+        new URL("/dashboard", process.env.NEXT_PUBLIC_APP_URL),
+      );
     }
     return supabaseResponse;
   }

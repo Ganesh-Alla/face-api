@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useAuth } from "@/lib/auth";
 
 const Login = () => {
   // Login form state
@@ -19,6 +20,7 @@ const Login = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const { signInWithGoogle } = useAuth();
   
   // Register form state
   const [registerEmail, setRegisterEmail] = useState("");
@@ -95,9 +97,7 @@ const Login = () => {
   const handleGoogleSignIn = async () => {
     try {
       setLoading(true);
-      await supabase.auth.signInWithOAuth({
-        provider: "google",
-      });
+      await signInWithGoogle();
       toast.success('Google login successful!');
     } catch (error) {
       if(error instanceof Error) {

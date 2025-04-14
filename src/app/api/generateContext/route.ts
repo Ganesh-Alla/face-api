@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
       '1. A detailed description of the image (context)\n' +
       '2. A list of keywords that describe the content (keywords)\n' +
       '3. Identify any events or occasions visible (event_type)\n' +
-      '4. Estimate the number of people visible (people_count)\n' +
+      '4. Estimate the number of people visible (people_count)(Interger)\n' +
       '5. Describe the setting or location (setting)\n' +
       '6. Identify the dominant colors (colors)\n' +
       '7. Identify any notable objects (objects)\n' +
@@ -75,6 +75,7 @@ export async function POST(request: NextRequest) {
         contextData = JSON.parse(jsonMatch[0]);
       } catch (e) {
         // If parsing fails, try to clean up the JSON
+        console.log('Failed to parse JSON:', e);
         const cleanedJson = jsonMatch[0]
           .replace(/(\w+):/g, '"$1":')  // Add quotes to keys
           .replace(/:\s*'([^']*)'/g, ': "$1"')  // Replace single quotes with double quotes
@@ -84,6 +85,7 @@ export async function POST(request: NextRequest) {
           contextData = JSON.parse(cleanedJson);
         } catch (e) {
           // If still fails, return a structured error response
+          console.log('Failed to parse cleaned JSON:', e);
           return NextResponse.json(
             { 
               error: 'Failed to parse AI response',

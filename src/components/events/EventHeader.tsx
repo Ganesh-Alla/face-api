@@ -11,12 +11,12 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 // import { Switch } from '@/components/ui/switch'
 // import { Label } from '@/components/ui/label'
 // import { Input } from '@/components/ui/input'
-import { useState } from 'react';
+// import { useState } from 'react';
 
 const EventHeader = () => {
   const router = useRouter();
   const { event } = useEventStore();
-  const [shareDialogOpen, setShareDialogOpen] = useState(false);
+  // const [shareDialogOpen, setShareDialogOpen] = useState(false);
   if (!event) return null;
   return (
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -76,7 +76,7 @@ const EventHeader = () => {
             
             <Button 
               variant="outline"
-              onClick={() => setShareDialogOpen(true)}
+              // onClick={() => setShareDialogOpen(true)}
             >
               <Share className="mr-2 h-4 w-4" />
               Share

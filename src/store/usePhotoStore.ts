@@ -99,12 +99,34 @@ const usePhotoStore = create<PhotoStore>((set, get) => ({
       const photosWithFaces: Photo[] = [];
       
       for (const photo of photos) {
+        // Use a more reliable query to get all faces for a photo
         const { data: faces, error: facesError } = await supabase
           .from('faces')
           .select('*')
           .eq('photo_id', photo.id);
         
-        if (facesError) throw facesError;
+        if (facesError) {
+          console.error('Error fetching faces for photo:', photo.id, facesError);
+          // Continue with empty faces array rather than failing completely
+          photosWithFaces.push({
+            id: photo.id,
+            eventId: photo.event_id,
+            url: photo.url,
+            createdAt: photo.created_at,
+            faces: [],
+            context: photo.context,
+            keywords: photo.keywords,
+            eventType: photo.event_type,
+            peopleCount: photo.people_count,
+            setting: photo.setting,
+            colors: photo.colors,
+            objects: photo.objects,
+            mood: photo.mood,
+            contextText: photo.context_text,
+            embedding: photo.embedding
+          });
+          continue;
+        }
         
         photosWithFaces.push({
           id: photo.id,
@@ -126,7 +148,8 @@ const usePhotoStore = create<PhotoStore>((set, get) => ({
           colors: photo.colors,
           objects: photo.objects,
           mood: photo.mood,
-          contextText: photo.context_text
+          contextText: photo.context_text,
+          embedding: photo.embedding
         });
       }
       
@@ -173,7 +196,14 @@ const usePhotoStore = create<PhotoStore>((set, get) => ({
         .getPublicUrl(fileName);
       
       // Generate context for the image using Gemini API
-      const contextData = await get().generateImageContext(publicUrl);
+      let contextData = null;
+      try {
+        contextData = await get().generateImageContext(publicUrl);
+      } catch (contextError) {
+        console.error("Error generating context:", contextError);
+        // Continue without context rather than failing the upload
+      }
+      
       // Save to database with context data
       const { data: photoData, error: dbError } = await supabase
         .from('photos')
@@ -198,15 +228,22 @@ const usePhotoStore = create<PhotoStore>((set, get) => ({
         .select()
         .single();
       
-      if (dbError) throw dbError;
+      if (dbError) {
+        console.error("Database error details:", dbError);
+        throw dbError;
+      }
       
-      const newPhoto: Photo = {
+      if (!photoData) {
+        throw new Error('No photo data returned from database');
+      }
+      
+      // Create a Photo object from the database result
+      const photo: Photo = {
         id: photoData.id,
         eventId: photoData.event_id,
         url: photoData.url,
         createdAt: photoData.created_at,
-        faces: [],
-        embedding: photoData.embedding,
+        faces: [], // New photo has no faces yet
         context: photoData.context,
         keywords: photoData.keywords,
         eventType: photoData.event_type,
@@ -215,15 +252,17 @@ const usePhotoStore = create<PhotoStore>((set, get) => ({
         colors: photoData.colors,
         objects: photoData.objects,
         mood: photoData.mood,
-        contextText: photoData.context_text
+        contextText: photoData.context_text,
+        embedding: photoData.embedding
       };
       
-      set(state => ({ 
-        photos: [newPhoto, ...state.photos],
-        isLoading: false 
+      // Update the photos state with the new photo
+      set(state => ({
+        photos: [photo, ...state.photos],
+        isLoading: false
       }));
       
-      return newPhoto;
+      return photo;
     } catch (error: unknown) {
       console.error('Error uploading photo:', error);
       set({ error: 'Failed to upload photo', isLoading: false });
@@ -243,25 +282,27 @@ const usePhotoStore = create<PhotoStore>((set, get) => ({
       
       if (!photo) throw new Error('Failed to upload main photo');
       
-      // Then upload each face
-      for (const face of faces) {
-        // Convert data URI to file
-        const faceFile = dataURItoFile(
-          face.faceImage, 
-          `face_${Date.now()}_${Math.random().toString(36).substring(2, 9)}.jpg`
-        );
-        
-        await get().saveFace(
-          photo.id,
-          faceFile,
-          face.descriptor,
-          face.confidence
-        );
+      // Then upload each face if there are any
+      if (faces.length > 0) {
+        for (const face of faces) {
+          // Convert data URI to file
+          const faceFile = dataURItoFile(
+            face.faceImage, 
+            `face_${Date.now()}_${Math.random().toString(36).substring(2, 9)}.jpg`
+          );
+          
+          await get().saveFace(
+            photo.id,
+            faceFile,
+            face.descriptor,
+            face.confidence
+          );
+        }
       }
       
       // Fetch the updated photo with faces
-      const updatedPhotos = await get().fetchPhotos(eventId);
-      const updatedPhoto = updatedPhotos.find(p => p.id === photo.id) || photo;
+      const refreshedPhotos = await get().fetchPhotos(eventId);
+      const updatedPhoto = refreshedPhotos.find(p => p.id === photo.id) || photo;
       
       return updatedPhoto;
     } catch (error: unknown) {
@@ -418,6 +459,7 @@ const usePhotoStore = create<PhotoStore>((set, get) => ({
       set(state => {
         const updatedPhotos = state.photos.map(photo => {
           if (photo.id === photoId) {
+            // Create a new array of faces to ensure React detects the change
             return {
               ...photo,
               faces: [...photo.faces, newFace]

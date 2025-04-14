@@ -6,13 +6,13 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent } from "@/components/ui/card";
-import { Search as SearchIcon, User, Text, Download, Eye, Tag, Sparkles } from "lucide-react";
+import { Search as SearchIcon, User, Download, Eye, Tag, Sparkles } from "lucide-react";
 import { useDropzone } from "react-dropzone";
 import { toast } from "sonner";
-import { supabase } from "@/lib/supabase";
 import Image from "next/image";
 import usePhotoStore, {type Photo } from "@/store/usePhotoStore";
 import { Badge } from "@/components/ui/badge";
+import Link from "next/link";
 
 const Search = () => {
   const { user } = useAuth();
@@ -24,7 +24,7 @@ const Search = () => {
   const [referenceImage, setReferenceImage] = useState<File | null>(null);
   const [referenceImagePreview, setReferenceImagePreview] = useState<string | null>(null);
   const [selectedKeywords, setSelectedKeywords] = useState<string[]>([]);
-  const [popularKeywords, setPopularKeywords] = useState<string[]>([
+  const [popularKeywords] = useState<string[]>([
     "wedding", "party", "beach", "mountain", "family", 
     "friends", "sunset", "food", "travel", "birthday",
     "ceremony", "dancing", "group photo", "children", "pets"
@@ -96,10 +96,10 @@ const Search = () => {
   };
 
   // Search photos by selected face
-  const handleFaceSearch = async (faceId: string) => {
-    toast.info("Face search is not fully implemented yet.");
-    // This would be implemented with the face recognition functionality
-  };
+  // const handleFaceSearch = async (faceId: string) => {
+  //   toast.info("Face search is not fully implemented yet.");
+  //   // This would be implemented with the face recognition functionality
+  // };
 
   return (
     <div className="space-y-8">
@@ -186,9 +186,10 @@ const Search = () => {
                     
                     {referenceImagePreview ? (
                       <div className="flex flex-col items-center">
-                        <img 
+                        <Image 
                           src={referenceImagePreview}
                           alt="Reference face"
+                          fill
                           className="h-32 w-32 object-cover rounded-full mb-2"
                         />
                         <p className="text-sm text-muted-foreground">Click or drag to replace</p>
@@ -272,14 +273,14 @@ const Search = () => {
                 </div>
                 <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
                   <Button size="icon" variant="secondary" className="h-8 w-8" asChild>
-                    <a href={photo.url} target="_blank" rel="noopener noreferrer">
+                    <Link href={photo.url} target="_blank" rel="noopener noreferrer">
                       <Eye className="h-4 w-4" />
-                    </a>
+                    </Link>
                   </Button>
                   <Button size="icon" variant="secondary" className="h-8 w-8" asChild>
-                    <a href={photo.url} download>
+                    <Link href={photo.url} download>
                       <Download className="h-4 w-4" />
-                    </a>
+                    </Link>
                   </Button>
                 </div>
                 
@@ -293,11 +294,12 @@ const Search = () => {
                   )}
                   {photo.keywords && photo.keywords.length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-1">
-                      {photo.keywords.slice(0, 3).map((tag, index) => (
+                      {photo.keywords.slice(0, 3).map((tag) => (
                         <span 
-                          key={index} 
+                          key={tag} 
                           className="text-xs px-2 py-0.5 bg-muted rounded-full cursor-pointer hover:bg-muted/80"
                           onClick={() => setSearchQuery(tag)}
+                          onKeyUp={() => setSearchQuery(tag)}
                         >
                           {tag}
                         </span>

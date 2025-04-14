@@ -12,7 +12,7 @@ export async function GET(request: Request) {
 
       if (data)
         return NextResponse.redirect(
-          new URL("/documents", process.env.NEXT_PUBLIC_APP_URL),
+          new URL("/dashboard", process.env.NEXT_PUBLIC_APP_URL),
         );
 
       throw new Error(error?.message);
